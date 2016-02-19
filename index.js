@@ -13,6 +13,7 @@
  const path    = require('path');
  const mkdirp  = require('mkdirp');
  const request = require('sync-request');
+ const crypto  = require('crypto');
  const fs      = require('fs');
  const events  = require('events');
  const cspawn  = require('child_process').spawnSync;
@@ -114,18 +115,28 @@
      this.minecraft = {};
      this.pty = {}
 
-     let minecraft_dir = cfg.minecraft.dir,
-         minecraft_ver = cfg.minecraft.version,
-         forge_version = cfg.minecraft.forge;
+     let minecraft_dir  = cfg.minecraft.dir,
+         minecraft_ver  = cfg.minecraft.version,
+         forge_version  = cfg.minecraft.forge,
+         minecraft_mods = path.join(cfg.minecraft.dir, 'mods.json');
 
      if(minecraft_dir) {
        if(fs.existsSync(minecraft_dir) === false) {
          console.log('[mc-node] Running initial setup phase from config.')
          mkdirp.sync(minecraft_dir)
 
+         // install forge or basic mc
          if(!minecraft_ver) {
            downloadForgeAndInstall(forge_version, minecraft_dir);
          }
+       }
+
+       if(fs.existsSync(minecraft_mods)) {
+         let mods = require(minecraft_mods);
+         this.mods = mods;
+       } else {
+         console.log('[node-mc] mods.json will be intialized.')
+         this.mods = [];
        }
      }
 
@@ -133,6 +144,172 @@
      this.minecraft = cfg.minecraft;
      this.eventListeners = cfg.eventListeners;
      this.events = new events.EventEmitter;
+   }
+
+   /**
+    * Build the initial database of mods.
+    **/
+   buildModDatabase() {
+     const mod_dir = path.join(this.minecraft.dir, 'mods');
+     const self = this;
+
+     // just in case.
+     if(!fs.existsSync(mod_dir)) {
+       mkdirp.sync(mod_dir);
+     }
+
+     console.log('[node-mc] Building initial mod database')
+     console.log('[node-mc] mod_dir='+mod_dir)
+     fs.readdir(mod_dir, function(err, files) {
+       if(err) {
+         console.log('Failed To Build Database');
+         console.log(err.stack);
+         process.exit(1);
+       }
+
+       async.each(files, function(mod, next) {
+         let cmod = path.join(mod_dir, mod);
+         let fd = fs.createReadStream(cmod);
+         let hash = crypto.createHash('sha512');
+         hash.setEncoding('hex');
+
+         fd.on('end', function() {
+           // signify the end of the hash buffer.
+           hash.end();
+
+           // push the mod to the mod array
+           self.mods.push({
+             filename: mod,
+             hash: hash.read()
+           });
+
+           return next();
+         });
+
+         // read all file and pipe it (write it) to the hash object
+         fd.pipe(hash);
+       }, function(err) {
+         // write file to disk
+         console.log(self.mods);
+         fs.writeFile(path.join(self.minecraft.dir, 'mods.json'), JSON.stringify(self.mods), function(err) {
+           if(err) {
+             console.error('Failed to save mods');
+             console.log(err.stack);
+             process.exit(1);
+           }
+         });
+       });
+     });
+   }
+
+   /**
+    * Check the minecraft version / forge version
+    **/
+   checkMinecraftVersion() {
+
+   }
+
+   /**
+    * Scan for new mods
+    **/
+   scanForNewMods() {
+     const mod_dir = path.join(this.minecraft.dir, 'mods');
+     const self    = this;
+
+     if(this.mods === undefined) {
+       console.error('Something happened during the database build.')
+       console.log('Please remove mods.json and try again.')
+       process.exit(1);
+     }
+
+     /**
+      * Check if a mod is registered in our database
+      **/
+     let modIsInstalled = function(name, type) {
+       if(type === undefined) {
+         type = 'name'
+       }
+
+       let i = 0;
+       for(let mod in self.mods) {
+         const rmod = self.mods[mod];
+
+         // instancing.
+         let cmod = {
+           filename: rmod.filename,
+           hash: rmod.hash,
+           index: i
+         }
+
+         if(rmod.filename === name) {
+           return cmod;
+         }
+
+         i++;
+       }
+
+       console.log('[node-mc] [modIsInstalled] false')
+       return false;
+     }
+
+     fs.readdir(mod_dir, function(err, files) {
+       if(err) {
+         console.log('Failed To Build Database');
+         console.log(err.stack);
+         process.exit(1);
+       }
+
+       async.each(files, function(mod, next) {
+         let cmod = path.join(mod_dir, mod);
+         let fd   = fs.createReadStream(cmod),
+             hash = crypto.createHash('sha512');
+
+         // set the hash streams encoding.
+         hash.setEncoding('hex');
+
+         fd.on('end', function() {
+           // signify the end of the hash buffer.
+           hash.end();
+
+           // push the mod to the mod array
+           const mod_installed = modIsInstalled(mod);
+           if(!mod_installed) {
+             console.log('[node-mc] new mod installed');
+
+             // push the new mod object to the mod array, that is saved to disk.
+             self.mods.push({
+               filename: mod,
+               hash: hash.read()
+             });
+
+             self.events.emit('modAddition', self.mods[self.mods.legnth-1]);
+           } else {
+             const modHash = hash.read();
+
+             // if the hash is different, trigger modUpdated.
+             if(modHash !== mod_installed.hash) {
+               self.mods[mod_installed.index].hash = modHash;
+               self.events.emit('modUpdated', self.mods[mod_installed.index]);
+             }
+           }
+
+           return next();
+         });
+
+         // read all file and pipe it (write it) to the hash object
+         fd.pipe(hash);
+       }, function(err) {
+         fs.writeFile(path.join(self.minecraft.dir, 'mods.json'), JSON.stringify(self.mods), function(err) {
+           if(err) {
+             console.error('Failed to save mods');
+             console.log(err.stack);
+             process.exit(1);
+           }
+         });
+       });
+     });
+
+     return true;
    }
 
    /**
@@ -167,9 +344,11 @@
    /**
     * Global function to execute apt-get
     *
+    * @param {Array} opts - opts to give to java, must include the jar file.
     * @param {String} dir - minecraft dir
     **/
    startServer(opts, dir) {
+     const self = this;
      let logfile;
 
      console.log('[node-mc] Utilzing Forge version', this.minecraft.forge);
@@ -187,6 +366,18 @@
      }
 
      logfile  = fs.createWriteStream(path.join(dir, 'node-mc.log'));
+
+     // start the event listener
+     this.populateEvents();
+
+     if(!this.minecraft.version) {
+       // start the mod reader.
+       if(!fs.existsSync(path.join(dir, 'mods.json'))) {
+         this.buildModDatabase();
+       } else {
+         this.scanForNewMods();
+       }
+     }
 
      let eula = path.join(dir, 'eula.txt')
      if(fs.existsSync(eula)) { // TODO: parse
@@ -210,10 +401,7 @@
      this.pty.running = true;
      this.pty.state = term;
 
-     console.log('[node-mc] regex table:', regex)
-
      // TODO: implement array regex iterator.
-     let self = this;
      term.on('data', function(data) {
        data = data.toString('ascii')
 
@@ -295,6 +483,7 @@ const cfg = {
       'status',
       'modAddition',
       'modDeletion',
+      'modUpdated',
       'versionChange'
     ]
   }],
@@ -304,8 +493,8 @@ const cfg = {
     dir: '/home/rylor/Code/node-mc/minecraft'
   }
 }
+
 const mc = new Mc(cfg);
-mc.populateEvents();
 mc.startServer();
 
 setTimeout(function() {
