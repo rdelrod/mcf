@@ -1,5 +1,5 @@
 {
-  "name": "node-mcg",
+  "name": "node-mcf",
   "version": "1.0.0",
   "description": "Minecraft Server Provisioner and Management System",
   "main": "index.js",
