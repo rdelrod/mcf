@@ -8,6 +8,7 @@
   },
   "author": "Jared Allard <jaredallard@outlook.com>",
   "license": "MIT",
+  "repository": "git+ssh://git@github.com:jaredallard/node-mcf",
   "dependencies": {
     "async": "^1.5.2",
     "mkdirp": "^0.5.1",
