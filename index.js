@@ -672,4 +672,4 @@
    }
  }
 
- module.exports = Mc;
+ module.exports.Mc = Mc;
