@@ -10,6 +10,7 @@
 
  const async   = require('async');
  const pty     = require('pty.js');
+ const asyncrq = require('request');
  const path    = require('path');
  const mkdirp  = require('mkdirp');
  const request = require('sync-request');
@@ -363,10 +364,34 @@
 
    /**
     * Send an event. Acts as a middleman for all events and types.
+    *
+    * @param {String} type - type of send, i.e webhook
+    * @param {String} to - uri to send too
+    * @param {...} args - arguments to send.
     **/
    sendEvent(type, to, args) {
      console.log('[node-mcf] send event', 'type='+type, 'to='+to);
      console.log('[node-mcf] args:', args);
+
+     if(type === 'webhook') {
+       let data = args;
+
+       // send the event
+       let res = asyncrq({
+         method: 'post',
+         body: data,
+         json: true,
+         url: to
+       })
+
+       // on error
+       res.on('error', function(err) {
+         console.warn('[node-mcf] Failed to send event.');
+         console.log(err.stack);
+       })
+     } else {
+       console.warn('[node-mcf] Failed to send event. Unknown type', '"'+type+'"')
+     }
    }
 
    /**
@@ -525,6 +550,7 @@
      });
 
      term.on('exit', function() {
+       fs.unlinkSync(path.join(self.minecraft.dir, 'node-mcf.log'));
        self.events.emit('status', 'down');
      });
    }
@@ -569,33 +595,79 @@
 
      return true;
    }
+
+   /**
+    * Op a player.
+    **/
+   op(player) {
+     if(!this.isPtyRunning()) {
+       return false;
+     }
+
+     return this.sendCommand('op '+player);
+   }
+
+   /**
+    * De-op a player
+    **/
+   deop(player) {
+     if(!this.isPtyRunning()) {
+       return false;
+     }
+
+     return this.sendCommand('deop '+player);
+   }
+
+   /**
+    * Remove a world.
+    **/
+   removeWorld(name) {
+     const self = this;
+     let worldDir = path.join(this.minecraft.dir, name);
+
+     if(!name) {
+       return {
+         success: false,
+         reason: 'INVOKE'
+       }
+     }
+
+     if(this.isPtyRunning()) {
+       return {
+         success: false,
+         reason: 'PTY'
+       };
+     }
+
+     if(fs.existsSync(worldDir)) {
+       console.log('[node-mcf] remove world:', name);
+
+       var deleteFolderRecursive = function(path) {
+        if( fs.existsSync(path) ) {
+          fs.readdirSync(path).forEach(function(file,index){
+            var curPath = path + "/" + file;
+            if(fs.lstatSync(curPath).isDirectory()) { // recurse
+              deleteFolderRecursive(curPath);
+            } else { // delete file
+              fs.unlinkSync(curPath);
+            }
+          });
+          fs.rmdirSync(path);
+        }
+      };
+
+      deleteFolderRecursive(worldDir);
+
+      console.log('[node-mcf] world destroyed.');
+
+      return {
+        success: true
+      }
+    } else {
+      return {
+        success: false,
+        reason: 'NOTEXIST'
+      }
+    }
+   }
  }
-
-
-
-const cfg = {
-  eventListeners: [{
-    type: 'webhook',
-    uri: 'https://your-domain.com:port/url',
-    events: [
-      'status',
-      'modAddition',
-      'modDeletion',
-      'modUpdated',
-      'versionChange'
-    ]
-  }],
-  minecraft: {
-    version: false, // use only if not utilizing forge.
-    forge: "1.8.9-11.15.1.1755",
-    dir: '/home/rylor/Code/node-mc/minecraft'
-  }
-}
-
-const mc = new Mc(cfg);
-mc.startServer();
-
-setTimeout(function() {
-  console.log('[node-mcf] Stop the server');
-  mc.sendCommand('stop');
-}, 20000)
