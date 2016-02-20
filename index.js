@@ -554,6 +554,10 @@
        self.events.emit('status', 'down');
        self.pty.running = false;
        self.pty.state = undefined;
+
+       // remove & reconstruct the event table.
+       self.events.removeAllListeners();
+       self.events = new events.EventEmitter;
      });
    }
 
