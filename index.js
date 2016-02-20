@@ -99,7 +99,7 @@
      env: process.env
    });
 
-   fs.unlinkSync(filename);
+   fs.unlinkSync(path.join(cwd, filename));
 
    return true;
  }

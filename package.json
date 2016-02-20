@@ -1,6 +1,6 @@
 {
   "name": "node-mcf",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Minecraft Server Provisioner and Management System",
   "main": "index.js",
   "scripts": {
