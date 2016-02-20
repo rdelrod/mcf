@@ -552,6 +552,8 @@
      term.on('exit', function() {
        fs.unlinkSync(path.join(self.minecraft.dir, 'node-mcf.log'));
        self.events.emit('status', 'down');
+       self.pty.running = false;
+       self.pty.state = undefined;
      });
    }
 
