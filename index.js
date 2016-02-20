@@ -108,7 +108,7 @@
  /**
   * @class mc
   **/
- class Mc {
+ module.exports = class Mc {
 
    /**
     * Constructor for our mc class.
@@ -671,5 +671,3 @@
     }
    }
  }
-
- module.exports.Mc = Mc;
