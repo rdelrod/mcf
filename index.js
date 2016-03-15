@@ -28,8 +28,8 @@
  }
 
  // url consts
- const FORGE_INSTALLER="http://files.minecraftforge.net/maven/net/minecraftforge/forge/{{version}}/forge-{{version}}-installer.jar"
- const MINECRAFT_JAR="https://s3.amazonaws.com/Minecraft.Download/versions/{{version}}/minecraft_server.{{version}}.jar"
+ const FORGE_INSTALLER = 'http://files.minecraftforge.net/maven/net/minecraftforge/forge/{{version}}/forge-{{version}}-installer.jar'
+ const MINECRAFT_JAR = 'https://s3.amazonaws.com/Minecraft.Download/versions/{{version}}/minecraft_server.{{version}}.jar'
 
  /**
   * Get all matches of a regex capture group.
@@ -40,7 +40,7 @@
   **/
  function getRegexMatches(regex, string) {
    if(!(regex instanceof RegExp)) {
-     return "ERROR";
+     return 'ERROR';
    }
 
    const matches = [];
@@ -48,7 +48,7 @@
    while (match) {
      if (match.length > 2) {
        const group_matches = [];
-       for (var i = 1; i < match.length; i++) {
+       for (let i = 1; i < match.length; i++) {
          group_matches.push(match[i]);
        }
        matches.push(group_matches);
@@ -67,6 +67,8 @@
   *
   * @param {String} version - version to install (forge)
   * @param {String} cwd - location to build forge.
+  *
+  * @returns {boolean} success
   **/
  function downloadForgeAndInstall(version, cwd) {
    const filename = 'forge-'+version+'-installer.jar'
@@ -94,9 +96,8 @@
    ];
    console.log('[node-mcf] CLI: java', opts.toString().replace(/\,/g, ' '));
 
-   let forge = cspawn('java', opts, {
-     cwd: cwd,
-     env: process.env
+   cspawn('java', opts, {
+     cwd: cwd
    });
 
    fs.unlinkSync(path.join(cwd, filename));
@@ -113,6 +114,7 @@
    /**
     * Constructor for our mc class.
     *
+    * @param {object} cfg - config object
     * @constructor
     **/
    constructor(cfg) {
@@ -152,6 +154,8 @@
 
    /**
     * Build the initial database of mods.
+    *
+    * @return {null} nothing
     **/
    buildModDatabase() {
      const mod_dir = path.join(this.minecraft.dir, 'mods');
@@ -199,6 +203,10 @@
          // read all file and pipe it (write it) to the hash object
          fd.pipe(hash);
        }, function(err) {
+         if(err) {
+           return console.log(err);
+         }
+
          fs.writeFile(path.join(self.minecraft.dir, 'mods.json'), JSON.stringify(self.mods), function(err) {
            if(err) {
              console.error('Failed to save mods');
@@ -212,6 +220,8 @@
 
    /**
     * Check the minecraft version / forge version
+    *
+    * @returns {undefined} does nothing at the moment.
     **/
    checkMinecraftVersion() {
 
@@ -219,12 +229,15 @@
 
    /**
     * Scan for new mods
+    *
+    * @returns {boolean} success
     **/
    scanForNewMods() {
      const mod_dir     = path.join(this.minecraft.dir, 'mods');
      const self        = this;
-     const clientModsP = path.join(this.minecraft.dir, 'clientmods.json');
-     const clientMods  = [];
+
+     let   clientModsP = path.join(this.minecraft.dir, 'clientmods.json');
+     let   clientMods  = [];
      const modEventQ   = [];
 
      if(fs.existsSync(clientMods)) {
@@ -239,6 +252,7 @@
 
      console.log('[node-mcf] checking for mod changes...')
 
+     // check for mod deletion
      let i = 0;
      for(let mod of self.mods) {
        let mloc = path.join(mod_dir, mod.filename);
@@ -254,6 +268,7 @@
        i++;
      }
 
+     // Determine if any mods were updated, or etc.
      fs.readdir(mod_dir, function(err, files) {
        if(err) {
          console.log('Failed To Build Database');
@@ -261,6 +276,7 @@
          process.exit(1);
        }
 
+       // Check every mod.
        async.each(files, function(mod, next) {
          let cmod = path.join(mod_dir, mod);
 
@@ -317,10 +333,15 @@
 
          // read all file and pipe it (write it) to the hash object
          fd.pipe(hash);
-       }, function(err) {
+       }, function() {
 
          /**
           * Send the events w/o repetition.
+          *
+          * @param {object} a - an event object.
+          * @param {sting} event - event we're sending?
+          *
+          * @returns {boolean} success
           **/
          let sendEvents = function(a, event) {
            const data = [];
@@ -355,6 +376,9 @@
          });
 
          fs.writeFile(clientModsP, JSON.stringify(clientMods), function(err) {
+           if(err) {
+             return console.log('[node-mcf] Failed to write clientMods.');
+           }
          })
        });
      });
@@ -367,7 +391,9 @@
     *
     * @param {String} type - type of send, i.e webhook
     * @param {String} to - uri to send too
-    * @param {...} args - arguments to send.
+    * @param {Variable} args - arguments to send.
+    *
+    * @returns {undefined} Nothing currently.
     **/
    sendEvent(type, to, args) {
      console.log('[node-mcf] send event', 'type='+type, 'to='+to);
@@ -396,6 +422,8 @@
 
    /**
     * Build the initial events system
+    *
+    * @returns {undefined} ideally will be success {boolean}
     **/
    populateEvents() {
      const self = this;
@@ -419,10 +447,12 @@
    }
 
    /**
-    * Global function to execute apt-get
+    * Global function to execute java
     *
     * @param {Array} opts - opts to give to java, must include the jar file.
     * @param {String} dir - minecraft dir
+    *
+    * @returns {undefiend} nothing currently.
     **/
    startServer(opts, dir) {
      const self = this;
@@ -456,50 +486,14 @@
        }
      }
 
-     const versionFile = path.join(dir, 'version.json');
-     if(!fs.existsSync(versionFile)) {
-       let data = {
-         version: self.minecraft.version,
-         forge: self.minecraft.forge
-       }
-
-       fs.writeFileSync(versionFile, JSON.stringify(data), 'utf8');
-     }
-
-     /**
-      * Check if we have been instructed to update forge.
-      **/
-     const versionFileC = JSON.parse(fs.readFileSync(versionFile));
-     if(versionFileC.version === false) {
-       if(versionFileC.forge !== self.minecraft.forge) {
-         let oldMc = path.join(dir, 'forge-'+versionFileC.forge+'-universal.jar');
-
-         // delete old version
-         if(fs.existsSync(oldMc)) {
-           fs.unlinkSync(oldMc);
-         }
-
-         console.log('[node-mcf] instructed to update forge...')
-         downloadForgeAndInstall(self.minecraft.forge, dir);
-
-         // write the new version
-         versionFileC.forge = self.minecraft.forge;
-         fs.writeFileSync(versionFile, JSON.stringify(versionFileC), 'utf8');
-
-         self.events.emit('versionChange', {
-           newVersion: self.minecraft.forge,
-           oldVersion: versionFileC.forge
-         })
-       }
-     }
-
      let eula = path.join(dir, 'eula.txt')
-     if(fs.existsSync(eula)) { // TODO: parse
-       console.log('[node-mcf] EULA set to true in', eula);
-       fs.writeFileSync(eula, 'eula=true', {
-         encoding: 'utf8'
-       });
-     }
+     fs.writeFile(eula, 'eula=true', {
+       encoding: 'utf8'
+     }, function(err) {
+       if(!err) {
+         console.log('[node-mcf] EULA set to true successfully. You have been warned.')
+       }
+     });
 
      // spawn our pty.
      let term = spawn('java', opts, {
@@ -507,8 +501,7 @@
        cols: 5000,
        rows: 4000,
        uid: 0,
-       cwd: dir,
-       env: process.env
+       cwd: dir
      });
 
      // set the pty state
@@ -518,7 +511,7 @@
      // emit the started event
      self.events.emit('status', 'starting');
 
-     // TODO: implement array regex iterator.
+     // Parse the terminal.
      term.on('data', function(data) {
        data = data.toString('ascii')
 
@@ -531,9 +524,10 @@
         .replace(/\n/g, '')
         .replace('\u001b[m>', '');
 
-       let pos = res.push(cinfo);
+       // push the info into the res object.
+       res.push(cinfo);
 
-       if(res[0] != null && res[0] !== ' ' && res[0] !== '') {
+       if(res[0] !== null && res[0] !== ' ' && res[0] !== '') {
          self.events.emit('console', res);
        }
 
@@ -543,12 +537,11 @@
          self.events.emit('status', 'up');
        }
 
-       // check the status
-
        // log the output somewhere, somehow.
        logfile.write(data+'\n');
      });
 
+     // on exit, clean up.
      term.on('exit', function() {
        fs.unlinkSync(path.join(self.minecraft.dir, 'node-mcf.log'));
        self.events.emit('status', 'down');
@@ -563,6 +556,8 @@
 
    /**
     * Determine if the pty is running
+    *
+    * @returns {boolean} status of pty.
     **/
    isPtyRunning() {
      if(this.pty.running) {
@@ -576,6 +571,8 @@
     * Write data to the pty
     *
     * @param {String} data - to write
+    *
+    * @returns {boolean} if writing to pty was successful.
     **/
    writeToPty(data) {
      if(this.isPtyRunning()) {
@@ -591,6 +588,8 @@
     * Send a Command to the Minecraft server.
     *
     * @param {String} cmd - command
+    *
+    * @returns {boolean} if command was sent successfully
     **/
    sendCommand(cmd) {
      let res = this.writeToPty(cmd);
@@ -604,6 +603,9 @@
 
    /**
     * Op a player.
+    *
+    * @param {String} player - name of player to op
+    * @return {boolean} success
     **/
    op(player) {
      if(!this.isPtyRunning()) {
@@ -615,6 +617,9 @@
 
    /**
     * De-op a player
+    *
+    * @param {String} player - name of player to deop
+    * @return {boolean} success
     **/
    deop(player) {
      if(!this.isPtyRunning()) {
@@ -626,9 +631,12 @@
 
    /**
     * Remove a world.
+    *
+    * @param {String} name - world name
+    *
+    * @returns {Object} mc-api like response object.
     **/
    removeWorld(name) {
-     const self = this;
      let worldDir = path.join(this.minecraft.dir, name);
 
      if(!name) {
@@ -648,10 +656,10 @@
      if(fs.existsSync(worldDir)) {
        console.log('[node-mcf] remove world:', name);
 
-       var deleteFolderRecursive = function(path) {
+       const deleteFolderRecursive = function(path) {
         if( fs.existsSync(path) ) {
-          fs.readdirSync(path).forEach(function(file,index){
-            var curPath = path + "/" + file;
+          fs.readdirSync(path).forEach(function(file){
+            var curPath = path + '/' + file;
             if(fs.lstatSync(curPath).isDirectory()) { // recurse
               deleteFolderRecursive(curPath);
             } else { // delete file
