@@ -462,6 +462,14 @@
 
      if(opts === undefined) {
        opts = [
+         '-server',
+         '-XX:+UseConcMarkSweepGC',
+         '-XX:+UseParNewGC',
+         '-XX:+CMSIncrementalPacing',
+         '-XX:ParallelGCThreads=3',
+         '-XX:+AggressiveOpts',
+         '-Xmx10G',
+         '-Xms5G',
          '-jar',
          'forge-'+this.minecraft.forge+'-universal.jar',
          'nogui'
