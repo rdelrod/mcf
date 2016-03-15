@@ -3,7 +3,7 @@
  *
  * @author Jared Allard <jaredallard@outlook.com>
  * @license MIT
- * @version 0.0.1
+ * @version 1.2.0
  **/
 
  'use strict';
