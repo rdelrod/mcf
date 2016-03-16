@@ -24,7 +24,8 @@
  const regex = {
    ctags: /\[([\w\d\s\\/.:]+)\]/gi,
    cinfo: /(\[[0-9:]+\]) (\[[\[A-Z\s\\/.\]]+: )/gi,
-   cdone: /Done \(([0-9\.]+)s\)\!/gi
+   cdone: /Done \(([0-9\.]+)s\)\!/gi,
+   cchat: /<([A-Z0-9]+)> ([\s\S]+)/gi
  }
 
  // url consts
@@ -223,168 +224,6 @@
     *
     * @returns {undefined} does nothing at the moment.
     **/
-   checkMinecraftVersion() {
-
-   }
-
-   /**
-    * Scan for new mods
-    *
-    * @returns {boolean} success
-    **/
-   scanForNewMods() {
-     const mod_dir     = path.join(this.minecraft.dir, 'mods');
-     const self        = this;
-
-     let   clientModsP = path.join(this.minecraft.dir, 'clientmods.json');
-     let   clientMods  = [];
-     const modEventQ   = [];
-
-     if(fs.existsSync(clientMods)) {
-       clientMods = require(clientModsP);
-     }
-
-     if(this.mods === undefined) {
-       console.error('Something happened during the database build.')
-       console.log('Please remove mods.json and try again.')
-       process.exit(1);
-     }
-
-     console.log('[node-mcf] checking for mod changes...')
-
-     // check for mod deletion
-     let i = 0;
-     for(let mod of self.mods) {
-       let mloc = path.join(mod_dir, mod.filename);
-
-       if(!fs.existsSync(mloc)) {
-         modEventQ.push({
-           data: mod,
-           event: 'modDeletion'
-         });
-         self.mods.splice(i, 1);
-       }
-
-       i++;
-     }
-
-     // Determine if any mods were updated, or etc.
-     fs.readdir(mod_dir, function(err, files) {
-       if(err) {
-         console.log('Failed To Build Database');
-         console.log(err.stack);
-         process.exit(1);
-       }
-
-       // Check every mod.
-       async.each(files, function(mod, next) {
-         let cmod = path.join(mod_dir, mod);
-
-         // check is dir.
-         if(fs.lstatSync(cmod).isDirectory()) {
-           return next();
-         }
-
-         let fd   = fs.createReadStream(cmod),
-             hash = crypto.createHash('sha512');
-
-         // set the hash streams encoding.
-         hash.setEncoding('hex');
-
-         fd.on('end', function() {
-           // signify the end of the hash buffer.
-           hash.end();
-
-           // check if the mod is installed all ready
-           let mod_installed = self.mods.filter(function ( obj ) {
-               return obj.filename === mod;
-           })[0];
-
-           if(!mod_installed) {
-             console.log('[node-mcf] new mod:', mod);
-
-             // new value
-             mod_installed = {
-               filename: mod,
-               hash: hash.read()
-             }
-
-             // push to mod dir, and event q
-             self.mods.push(mod_installed);
-             modEventQ.push({
-               data: mod_installed,
-               event: 'modAddition'
-             });
-           } else {
-             const modHash = hash.read();
-
-             // if the hash is different, trigger modUpdated.
-             if(modHash !== mod_installed.hash) {
-               self.mods[mod_installed.index].hash = modHash;
-               modEventQ.push({
-                 data: self.mods[mod_installed.index],
-                 event: 'modUpdated'
-               });
-             }
-           }
-
-           return next();
-         });
-
-         // read all file and pipe it (write it) to the hash object
-         fd.pipe(hash);
-       }, function() {
-
-         /**
-          * Send the events w/o repetition.
-          *
-          * @param {object} a - an event object.
-          * @param {sting} event - event we're sending?
-          *
-          * @returns {boolean} success
-          **/
-         let sendEvents = function(a, event) {
-           const data = [];
-           for(let mod of a) {
-             if(mod.event === event) {
-               data.push(mod.data);
-             }
-           }
-
-           // check if anything actually came up.
-           if(data[0] === undefined || data[0] === null) {
-             return false;
-           }
-
-           self.events.emit(event, {
-             mods: data
-           })
-         }
-
-         sendEvents(modEventQ, 'modAddition');
-         sendEvents(modEventQ, 'modDeletion');
-         sendEvents(modEventQ, 'modUpdated');
-
-         // update the disk file.
-         let data = JSON.stringify(self.mods);
-         fs.writeFile(path.join(self.minecraft.dir, 'mods.json'), data, function(err) {
-           if(err) {
-             console.error('Failed to save mods');
-             console.log(err.stack);
-             process.exit(1);
-           }
-         });
-
-         fs.writeFile(clientModsP, JSON.stringify(clientMods), function(err) {
-           if(err) {
-             return console.log('[node-mcf] Failed to write clientMods.');
-           }
-         })
-       });
-     });
-
-     return true;
-   }
 
    /**
     * Send an event. Acts as a middleman for all events and types.
@@ -403,7 +242,7 @@
        let data = args;
 
        // send the event
-       let res = asyncrq({
+       let req = asyncrq({
          method: 'post',
          body: data,
          json: true,
@@ -411,7 +250,7 @@
        })
 
        // on error
-       res.on('error', function(err) {
+       req.on('error', function(err) {
          console.warn('[node-mcf] Failed to send event.');
          console.log(err.stack);
        })
@@ -485,15 +324,6 @@
      // start the event listener
      this.populateEvents();
 
-     if(!this.minecraft.version) {
-       // start the mod reader.
-       if(!fs.existsSync(path.join(dir, 'mods.json'))) {
-         this.buildModDatabase();
-       } else {
-         this.scanForNewMods();
-       }
-     }
-
      let eula = path.join(dir, 'eula.txt')
      fs.writeFile(eula, 'eula=true', {
        encoding: 'utf8'
@@ -545,8 +375,19 @@
          self.events.emit('status', 'up');
        }
 
+       let isChat = /<([A-Z0-9]+)> ([\s\S]+)/gi.exec(data);
+       if(isChat !== null) {
+         let isFrom = isChat[1];
+         let says   = isChat[2];
+
+         self.events.emit('chatMessage', {
+           from: isFrom,
+           message: new Buffer(says).toString('base64')
+         })
+       }
+
        // log the output somewhere, somehow.
-       logfile.write(data+'\n');
+       console.log(data);
      });
 
      // on exit, clean up.
